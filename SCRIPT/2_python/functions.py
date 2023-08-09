@@ -57,10 +57,17 @@ def train(model, loader, loss_fn, optimizer):
     return
 
 def test(model, loader, dataset):
+    print("###############")
     correct = 0
-    for patient in loader:
+
+    for i,patient in enumerate(loader):
+        print('printin patient')
+        print(i)
+    
+    for i,patient in enumerate(loader):
+        print("patient",i)
         for data in patient:
-            print(data)
+            #print(data)
             out = model(data.x, data.edge_index, data.batch)
             pred = out.argmax(dim=1)  # make prediction based on returned softmax values
             correct += int((pred == data.y).sum()) # count correct predictions
@@ -131,7 +138,7 @@ def main_func(model_name, dataset, test_dataset, model_dir, result_dir, k_hop=1,
         # Split train, test set and define dataloader
         train_dataset = [dataset[i] for i in train_index]
         valid_dataset = [dataset[i] for i in valid_index]
-
+        print(train_dataset)
         if model_name =='CNN':
             train_loader = CNNLoader(train_dataset, batch_size=128, shuffle=False) # type: ignore
             valid_loader = CNNLoader(valid_dataset, batch_size=32, shuffle=False)
@@ -144,6 +151,7 @@ def main_func(model_name, dataset, test_dataset, model_dir, result_dir, k_hop=1,
 
         # For each epoch
         for epoch in range(n_epo):
+            print("epoch", epoch)
             if model_name == 'CNN':
                 train_cnn(model, train_loader, loss_fnc, opt)
             else:
@@ -206,7 +214,3 @@ def main_func(model_name, dataset, test_dataset, model_dir, result_dir, k_hop=1,
     #test_acc = test(model1, test_loader, test_dataset)
     #print(f'Acc: {test_acc:.4f}')
     print('\nElapsed Time: ',time.time()-start)
-
-
-def test_func(input):
-    return input*10
