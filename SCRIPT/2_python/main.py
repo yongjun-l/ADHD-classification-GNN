@@ -194,6 +194,9 @@ test_dataset_img = TensorDataset(test_img, test_label)
 #endregion
 
 
+print(test_graph[0])
+
+
 main_func("SAGE", dataset_graph, test_graph, model_dir, result_dir, 1, 10, 10)
 
 

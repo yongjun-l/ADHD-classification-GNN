@@ -103,7 +103,7 @@ def test_cnn(model, loader, dataset):
 
     return correct / len(dataset)
 
-
+'''
 def main_func(model_name, dataset, test_dataset, model_dir, result_dir, k_hop=1, k_fold=10, n_epo=150, h_ch = 20, lr=0.0001, save=True):
     start = time.time()
 
@@ -214,3 +214,47 @@ def main_func(model_name, dataset, test_dataset, model_dir, result_dir, k_hop=1,
     #test_acc = test(model1, test_loader, test_dataset)
     #print(f'Acc: {test_acc:.4f}')
     print('\nElapsed Time: ',time.time()-start)
+'''
+
+def main_func(model_name, dataset, test_dataset, model_dir, result_dir, k_hop=1, k_fold=10, n_epo=150, h_ch = 20, lr=0.0001, save=True):
+    start = time.time()
+
+    # Implement k-fold cross validation
+    kf = KFold(n_splits=k_fold, shuffle=True)
+
+    # For each fold
+    for fold, (train_index, valid_index) in enumerate(kf.split(dataset)):
+
+        model = models.SAGE(hidden_channels=h_ch, k_hop=k_hop)
+        opt = torch.optim.NAdam(model.parameters(), lr=lr, betas = (0.9,0.999), momentum_decay=0.004)
+        loss_fnc = torch.nn.CrossEntropyLoss()
+
+        list_train_acc = []
+        list_valid_acc = []
+        list_test_acc = []
+
+        # Split train, test set and define dataloader
+        train_dataset = [dataset[i] for i in train_index]
+        valid_dataset = [dataset[i] for i in valid_index]
+
+        train_loader = DataLoader(train_dataset, batch_size=128, shuffle=False)
+        valid_loader = DataLoader(valid_dataset, batch_size=128, shuffle=False)
+        test_loader = DataLoader(test_dataset, batch_size=121, shuffle=False)  # whole set
+
+        print('newmainfunc')
+
+        for i, patient in enumerate(train_loader):
+            pass
+
+        # For each epoch
+        for epoch in range(n_epo):
+            print("epoch", epoch)
+            train(model, train_loader, loss_fnc, opt)
+
+            train_acc = test(model, train_loader, train_dataset)
+            valid_acc = test(model, valid_loader, valid_dataset)
+            test_acc = test(model, test_loader, test_dataset)
+
+            list_train_acc.append(train_acc)
+            list_valid_acc.append(valid_acc)
+            list_test_acc.append(test_acc)
