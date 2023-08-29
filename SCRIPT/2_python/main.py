@@ -21,8 +21,8 @@ mi_dir_adhd_overlap = proj_dir + '/DATA/MI_TABLE/mi_adhd_overlap.npy'
 mi_dir_control_overlap = proj_dir + '/DATA/MI_TABLE/mi_control_overlap.npy'
 
 # save accuracy and trained models
-result_dir = proj_dir + '/DATA/RESULTS'
-model_dir = proj_dir + '/DATA/MODELS'
+result_dir = proj_dir + '/DATA/RESULTS/new_results'
+model_dir = proj_dir + '/DATA/MODELS/new_models'
 
 epoch_adhd_dir = proj_dir + '/DATA/MI_TABLE/num_epoch_ADHD.npy'
 epoch_control_dir = proj_dir + '/DATA/MI_TABLE/num_epoch_CONTROL.npy'
@@ -207,11 +207,13 @@ test_label = test_label.long()
 test_dataset_img = TensorDataset(test_img, test_label)
 #endregion
 
-
-print(test_graph[0])
-
-
-train_acc, valid_acc, test_acc = main_func("SAGE", dataset_graph, test_graph, model_dir, result_dir, k_hop=1, k_fold=10, n_iter=100)
-print(max(train_acc), max(valid_acc), max(test_acc))
-
-
+test_acc, list_valid_acc, choose_model = main_func("SAGE", 
+                                                   dataset_graph,
+                                                   test_graph, 
+                                                   model_dir, 
+                                                   result_dir, 
+                                                   k_hop=1, 
+                                                   k_fold=10, 
+                                                   n_iter=300,
+                                                   lr=0.001)
+print(f'Acc: {test_acc:.4f}')

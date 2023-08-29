@@ -206,7 +206,7 @@ def main_func(model_name, dataset, test_dataset, model_dir, result_dir, k_hop=1,
     print('\nElapsed Time: ',time.time()-start)
 '''
 
-def main_func(model_name, dataset, test_dataset, model_dir, result_dir, k_hop=1, k_fold=10, n_iter=150, h_ch = 20, lr=0.0001, save=True):
+def main_func(model_name, dataset, test_dataset, model_dir, result_dir, k_hop=1, k_fold=10, n_iter=150, h_ch = 20, lr=0.0001):
     start = time.time()
 
     test_dataset = list(chain.from_iterable(test_dataset))
@@ -214,20 +214,16 @@ def main_func(model_name, dataset, test_dataset, model_dir, result_dir, k_hop=1,
 
     # Implement k-fold cross validation
     kf = KFold(n_splits=k_fold, shuffle=True)
-    final_train_acc = []
-    final_valid_acc = []
-    final_test_acc = []
+
+    list_train_acc = np.empty((n_iter, k_fold))
+    list_valid_acc = []
 
     for fold, (train_index, valid_index) in enumerate(kf.split(dataset)): # for each fold
         print("fold ",fold)
         model = models.SAGE(hidden_channels=h_ch, k_hop=k_hop)
         opt = torch.optim.NAdam(model.parameters(), lr=lr, betas = (0.9,0.999), momentum_decay=0.004)
         loss_fnc = torch.nn.CrossEntropyLoss()
-
-        list_train_acc = []
-        list_valid_acc = []
-        list_test_acc = []
-
+        
         # Split train, test set and define dataloader
         train_dataset = [dataset[i] for i in train_index] # list of lists. [patient[graph epoch]]
         valid_dataset = [dataset[i] for i in valid_index]
@@ -239,62 +235,36 @@ def main_func(model_name, dataset, test_dataset, model_dir, result_dir, k_hop=1,
         valid_loader = DataLoader(valid_dataset, batch_size=128, shuffle=True)
 
         for iteration in range(n_iter): # train iteration
-            if iteration % 10 == 0:
+            if (iteration+1) % 10 == 0:
                 print('iteration ', iteration)
             train(model, train_loader, loss_fnc, opt)
-
             train_acc = test(model, train_loader, train_dataset)
-            valid_acc = test(model, valid_loader, valid_dataset)
-        
-            list_train_acc.append(train_acc)
-            list_valid_acc.append(valid_acc)
-
-        ####################################
-        # Save the results for visualization and analysis
-        ####################################
-        
-        # Turn accuracy to numpy array
-        list_train_acc = np.array(list_train_acc)
-        list_valid_acc = np.array(list_valid_acc)
-
-        # Reshape results as column vector
-        list_train_acc = np.reshape(list_train_acc, (-1,1))
-        list_valid_acc = np.reshape(list_valid_acc, (-1,1))
-        results = np.concatenate((list_train_acc,list_valid_acc,list_test_acc), axis=1)
-        results = pd.DataFrame(results, columns=['Train', 'Valid', 'Test'])
-
-        # Save accuracy log
-        filename = result_dir+'/kfold_'
-        if model_name == 'CNN':
-            filename += f'{model_name}_ndam_epo_{n_iter}.csv'
-        else:
-            filename += f'{model_name}_k_{k_hop}_ndam_epo_{n_iter}_lr_{lr}.csv'
-        results.to_csv(filename, float_format='%.3f', index=False, header=True)
+            list_train_acc[iteration, fold] = train_acc
 
         # Save model for later use
-        filename_model = model_dir+'/kfold_'
+        filename_model = model_dir+f'/kfold_{fold}_'
         if model_name == 'CNN':
             filename_model += f'{model_name}.pth'
         else:
-            filename_model += f'{model_name}_k_{k_hop}.pth'
-        torch.save(model_selection, filename_model)
+            filename_model += f'{model_name}_k_{k_hop}_ndam_iter_{n_iter}_lr_{lr}.pth'
+        torch.save(model, filename_model)
 
-        test_acc = test(model, test_loader, test_dataset)
-        list_test_acc.append(test_acc)
+        valid_acc = test(model, valid_loader, valid_dataset)
+        list_valid_acc.append(valid_acc)
         
-        final_train_acc.append(list_train_acc[-1])
-        final_valid_acc.append(list_valid_acc[-1])
-        final_test_acc.append(list_test_acc[-1])
-    
-    
+    # Save train accuracy log
+    if model_name == 'CNN':
+        filename = result_dir + f'/{model_name}_ndam_iter_{n_iter}.csv'
+    else:
+        filename = result_dir + f'{model_name}_k_{k_hop}_ndam_iter_{n_iter}_lr_{lr}.csv'
+    np.savetxt(filename, list_train_acc, delimiter=',', fmt='%f')
 
     # Retain saved model
     # This may not work for other environments due to different path names
-    model1 = torch.load(filename_model)
-    #test_acc = test(model1, test_loader, test_dataset)
-    #print(f'Acc: {test_acc:.4f}')
+    choose_fold = list_valid_acc.index(max(list_valid_acc))
+    print("chosen fold: ", choose_fold)
+    filename_model = model_dir + f'/kfold_{choose_fold}_{model_name}_k_{k_hop}_ndam_iter_{n_iter}_lr_{lr}.pth'
+    choose_model = torch.load(filename_model)
+    test_acc = test(choose_model, test_loader, test_dataset)
     print('\nElapsed Time: ',time.time()-start)
-
-
-
-    return final_train_acc, final_valid_acc, final_test_acc
+    return test_acc, list_valid_acc, choose_model
