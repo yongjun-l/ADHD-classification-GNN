@@ -62,7 +62,7 @@ for i in epo_per_control:
 #region Create Graph Test Set
 # Test set is created by taking the average value 
 # of all mutual information tables for each patient.
-
+'''
 # For each patient, find mean value of all MI tables
 # Then create new test datapoint.
 adhd_test_mi = np.zeros((61,20,20))
@@ -87,7 +87,6 @@ control_test_graph = getGraph(control_test_mi, y=0)
 test_graph = adhd_test_graph + control_test_graph
 # very important to shuffle. Unshuffled data does not learn.
 random.shuffle(test_graph)
-#endregion 
 
 # This is the summary of graph data objects.
 # Graph constructed from the 1st 4 seconds of recording from 100th patient
@@ -99,6 +98,21 @@ print(f'Has isolated nodes: {data.has_isolated_nodes()}')
 print(f'Has self-loops: {data.has_self_loops()}')
 print(f'Is undirected: {data.is_undirected()}')
 print(f'Number of features: {data.num_node_features}')
+'''
+#endregion 
+
+# region New Test set (updated)
+# New test set is defined to prevent data leakage.
+split_ratio = 0.9 
+random.shuffle(dataset_graph)  
+split_index = int(len(dataset_graph) * split_ratio)
+print(split_index)
+test_graph = dataset_graph[split_index:]
+dataset_graph = dataset_graph[:split_index]
+
+
+
+# endregion
 
 
 #region Create Image Dataset
@@ -197,7 +211,7 @@ test_dataset_img = TensorDataset(test_img, test_label)
 print(test_graph[0])
 
 
-main_func("SAGE", dataset_graph, test_graph, model_dir, result_dir, 1, 10, 10)
-
+train_acc, valid_acc, test_acc = main_func("SAGE", dataset_graph, test_graph, model_dir, result_dir, k_hop=1, k_fold=10, n_iter=100)
+print(max(train_acc), max(valid_acc), max(test_acc))
 
 

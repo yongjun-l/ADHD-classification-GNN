@@ -1,4 +1,6 @@
 import numpy as np
+from itertools import chain
+
 from sklearn import model_selection
 import torch
 from torch_geometric.data import Data
@@ -44,33 +46,21 @@ def getGraph(mi_table, y):
 
 def train(model, loader, loss_fn, optimizer):
     model.train()
+    for data in loader:
+        out = model(data.x, data.edge_index, data.batch)  # forward pass
+        loss = loss_fn(out, data.y) # loss
+        loss.backward()  # gradient
+        optimizer.step()  # update weights
+        optimizer.zero_grad()  # clear gradients
 
-    for patient in loader:  # Iterate batches
-        #print(patient)
-        for data in patient:
-            #print(data)
-            out = model(data.x, data.edge_index, data.batch)  # forward pass
-            loss = loss_fn(out, data.y) # loss
-            loss.backward()  # gradient
-            optimizer.step()  # update weights
-            optimizer.zero_grad()  # clear gradients
     return
 
 def test(model, loader, dataset):
-    print("###############")
     correct = 0
-
-    for i,patient in enumerate(loader):
-        print('printin patient')
-        print(i)
-    
-    for i,patient in enumerate(loader):
-        print("patient",i)
-        for data in patient:
-            #print(data)
-            out = model(data.x, data.edge_index, data.batch)
-            pred = out.argmax(dim=1)  # make prediction based on returned softmax values
-            correct += int((pred == data.y).sum()) # count correct predictions
+    for i, data in enumerate(loader):
+        out = model(data.x, data.edge_index, data.batch)
+        pred = out.argmax(dim=1)  # make prediction based on returned softmax values
+        correct += int((pred == data.y).sum()) # count correct predictions
     return correct / len(dataset)
 
 # since CNN model does not have data object like GNN, train and test functions were implemented separately.
@@ -216,15 +206,20 @@ def main_func(model_name, dataset, test_dataset, model_dir, result_dir, k_hop=1,
     print('\nElapsed Time: ',time.time()-start)
 '''
 
-def main_func(model_name, dataset, test_dataset, model_dir, result_dir, k_hop=1, k_fold=10, n_epo=150, h_ch = 20, lr=0.0001, save=True):
+def main_func(model_name, dataset, test_dataset, model_dir, result_dir, k_hop=1, k_fold=10, n_iter=150, h_ch = 20, lr=0.0001, save=True):
     start = time.time()
+
+    test_dataset = list(chain.from_iterable(test_dataset))
+    test_loader = DataLoader(test_dataset, batch_size=128, shuffle=True)  # whole set
 
     # Implement k-fold cross validation
     kf = KFold(n_splits=k_fold, shuffle=True)
+    final_train_acc = []
+    final_valid_acc = []
+    final_test_acc = []
 
-    # For each fold
-    for fold, (train_index, valid_index) in enumerate(kf.split(dataset)):
-
+    for fold, (train_index, valid_index) in enumerate(kf.split(dataset)): # for each fold
+        print("fold ",fold)
         model = models.SAGE(hidden_channels=h_ch, k_hop=k_hop)
         opt = torch.optim.NAdam(model.parameters(), lr=lr, betas = (0.9,0.999), momentum_decay=0.004)
         loss_fnc = torch.nn.CrossEntropyLoss()
@@ -234,27 +229,72 @@ def main_func(model_name, dataset, test_dataset, model_dir, result_dir, k_hop=1,
         list_test_acc = []
 
         # Split train, test set and define dataloader
-        train_dataset = [dataset[i] for i in train_index]
+        train_dataset = [dataset[i] for i in train_index] # list of lists. [patient[graph epoch]]
         valid_dataset = [dataset[i] for i in valid_index]
+        
+        train_dataset = list(chain.from_iterable(train_dataset)) 
+        valid_dataset = list(chain.from_iterable(valid_dataset))
+        
+        train_loader = DataLoader(train_dataset, batch_size=128, shuffle=True)
+        valid_loader = DataLoader(valid_dataset, batch_size=128, shuffle=True)
 
-        train_loader = DataLoader(train_dataset, batch_size=128, shuffle=False)
-        valid_loader = DataLoader(valid_dataset, batch_size=128, shuffle=False)
-        test_loader = DataLoader(test_dataset, batch_size=121, shuffle=False)  # whole set
-
-        print('newmainfunc')
-
-        for i, patient in enumerate(train_loader):
-            pass
-
-        # For each epoch
-        for epoch in range(n_epo):
-            print("epoch", epoch)
+        for iteration in range(n_iter): # train iteration
+            if iteration % 10 == 0:
+                print('iteration ', iteration)
             train(model, train_loader, loss_fnc, opt)
 
             train_acc = test(model, train_loader, train_dataset)
             valid_acc = test(model, valid_loader, valid_dataset)
-            test_acc = test(model, test_loader, test_dataset)
-
+        
             list_train_acc.append(train_acc)
             list_valid_acc.append(valid_acc)
-            list_test_acc.append(test_acc)
+
+        ####################################
+        # Save the results for visualization and analysis
+        ####################################
+        
+        # Turn accuracy to numpy array
+        list_train_acc = np.array(list_train_acc)
+        list_valid_acc = np.array(list_valid_acc)
+
+        # Reshape results as column vector
+        list_train_acc = np.reshape(list_train_acc, (-1,1))
+        list_valid_acc = np.reshape(list_valid_acc, (-1,1))
+        results = np.concatenate((list_train_acc,list_valid_acc,list_test_acc), axis=1)
+        results = pd.DataFrame(results, columns=['Train', 'Valid', 'Test'])
+
+        # Save accuracy log
+        filename = result_dir+'/kfold_'
+        if model_name == 'CNN':
+            filename += f'{model_name}_ndam_epo_{n_iter}.csv'
+        else:
+            filename += f'{model_name}_k_{k_hop}_ndam_epo_{n_iter}_lr_{lr}.csv'
+        results.to_csv(filename, float_format='%.3f', index=False, header=True)
+
+        # Save model for later use
+        filename_model = model_dir+'/kfold_'
+        if model_name == 'CNN':
+            filename_model += f'{model_name}.pth'
+        else:
+            filename_model += f'{model_name}_k_{k_hop}.pth'
+        torch.save(model_selection, filename_model)
+
+        test_acc = test(model, test_loader, test_dataset)
+        list_test_acc.append(test_acc)
+        
+        final_train_acc.append(list_train_acc[-1])
+        final_valid_acc.append(list_valid_acc[-1])
+        final_test_acc.append(list_test_acc[-1])
+    
+    
+
+    # Retain saved model
+    # This may not work for other environments due to different path names
+    model1 = torch.load(filename_model)
+    #test_acc = test(model1, test_loader, test_dataset)
+    #print(f'Acc: {test_acc:.4f}')
+    print('\nElapsed Time: ',time.time()-start)
+
+
+
+    return final_train_acc, final_valid_acc, final_test_acc
