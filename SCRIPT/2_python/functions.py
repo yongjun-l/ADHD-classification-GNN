@@ -67,6 +67,8 @@ def test(model, loader, dataset):
 def train_cnn(model, loader, loss_fn, optimizer):
     correct=0
     for i, data in enumerate(loader):
+        print(data)
+        print(type(data))
         inputs, labels = data
         if inputs.shape[0] ==1:  # k-fold would randomly return a fold size that would result in 1 mod batch_size. This was causing dimention error.
             return
@@ -206,7 +208,7 @@ def main_func(model_name, dataset, test_dataset, model_dir, result_dir, k_hop=1,
     print('\nElapsed Time: ',time.time()-start)
 '''
 
-def main_func(model_name, dataset, test_dataset, model_dir, result_dir, k_hop=1, k_fold=10, n_iter=150, h_ch = 20, lr=0.0001):
+def main_func(model_name, dataset, test_dataset, model_dir, result_dir, k_hop=1, k_fold=10, n_iter=150, h_ch = 20, lr=0.0001, remove_region="None", test_only=False):
     start = time.time()
 
     test_dataset = list(chain.from_iterable(test_dataset))
@@ -216,55 +218,93 @@ def main_func(model_name, dataset, test_dataset, model_dir, result_dir, k_hop=1,
     kf = KFold(n_splits=k_fold, shuffle=True)
 
     list_train_acc = np.empty((n_iter, k_fold))
-    list_valid_acc = []
+    list_valid_acc = np.empty((n_iter, k_fold))
 
-    for fold, (train_index, valid_index) in enumerate(kf.split(dataset)): # for each fold
-        print("fold ",fold)
-        model = models.SAGE(hidden_channels=h_ch, k_hop=k_hop)
-        opt = torch.optim.NAdam(model.parameters(), lr=lr, betas = (0.9,0.999), momentum_decay=0.004)
-        loss_fnc = torch.nn.CrossEntropyLoss()
-        
-        # Split train, test set and define dataloader
-        train_dataset = [dataset[i] for i in train_index] # list of lists. [patient[graph epoch]]
-        valid_dataset = [dataset[i] for i in valid_index]
-        
-        train_dataset = list(chain.from_iterable(train_dataset)) 
-        valid_dataset = list(chain.from_iterable(valid_dataset))
-        
-        train_loader = DataLoader(train_dataset, batch_size=128, shuffle=True)
-        valid_loader = DataLoader(valid_dataset, batch_size=128, shuffle=True)
+    if test_only==False:
+        for fold, (train_index, valid_index) in enumerate(kf.split(dataset)): # for each fold
+            print("fold ",fold)
+            # Define model, optimizer, and loss function
+            if model_name == 'SAGE':
+                model = models.SAGE(hidden_channels=h_ch, k_hop=k_hop)
+            elif model_name == 'GCN':
+                model = models.GCN(hidden_channels=h_ch, k_hop=k_hop)
+            #elif model_name == 'DIFF':
+            #    model = DIFF(hidden_channels=h_ch, K=k_hop)
+            elif model_name =='CNN':
+                model = models.CNN()
+            else:
+                print('Error: model not defined')
+                return
+            
+            opt = torch.optim.NAdam(model.parameters(), lr=lr, betas = (0.9,0.999), momentum_decay=0.004)
+            loss_fnc = torch.nn.CrossEntropyLoss()
+            
+            # Split train, test set and define dataloader
+            train_dataset = [dataset[i] for i in train_index] # list of lists. [patient[graph epoch]]
+            valid_dataset = [dataset[i] for i in valid_index]
+            
+                        
+            if model_name =='CNN':
+                train_loader = CNNLoader(train_dataset, batch_size=128, shuffle=False) # type: ignore
+                valid_loader = CNNLoader(valid_dataset, batch_size=128, shuffle=False)
+                test_loader = CNNLoader(test_dataset, batch_size=32, shuffle=False)
+            else:
+                train_dataset = list(chain.from_iterable(train_dataset)) 
+                valid_dataset = list(chain.from_iterable(valid_dataset))
 
-        for iteration in range(n_iter): # train iteration
-            if (iteration+1) % 10 == 0:
-                print('iteration ', iteration)
-            train(model, train_loader, loss_fnc, opt)
-            train_acc = test(model, train_loader, train_dataset)
-            list_train_acc[iteration, fold] = train_acc
+                train_loader = DataLoader(train_dataset, batch_size=128, shuffle=True)
+                valid_loader = DataLoader(valid_dataset, batch_size=128, shuffle=True)
 
-        # Save model for later use
-        filename_model = model_dir+f'/kfold_{fold}_'
+            for iteration in range(n_iter): # train iteration
+                if model_name=='CNN':
+                    train_cnn(model, train_loader, loss_fnc, opt)    
+                else: 
+                    train(model, train_loader, loss_fnc, opt)
+
+                train_acc = test(model, train_loader, train_dataset)
+                valid_acc = test(model, valid_loader, valid_dataset)
+                list_train_acc[iteration, fold] = train_acc
+                list_valid_acc[iteration, fold] = valid_acc
+
+                if (iteration+1) % 100 == 0:
+                    print('iteration ', iteration+1)
+
+            # Save model for later use
+            filename_model = model_dir+f'/kfold_{fold}_'
+            if model_name == 'CNN':
+                filename_model += f'{model_name}.pth'
+            else:
+                filename_model += f'{model_name}_k_{k_hop}_ndam_iter_{n_iter}_lr_{lr}_remove_{remove_region}.pth'
+            torch.save(model, filename_model)
+
+            #valid_acc = test(model, valid_loader, valid_dataset)
+            #list_valid_acc.append(valid_acc)
+            
+        # Save train accuracy log
         if model_name == 'CNN':
-            filename_model += f'{model_name}.pth'
+            filename = result_dir + f'/{model_name}_ndam_iter_{n_iter}_lr_{lr}_remove_{remove_region}.csv'
+            filename_valid = result_dir + f'/{model_name}_ndam_iter_{n_iter}_lr_{lr}_remove_{remove_region}_valid.csv'
         else:
-            filename_model += f'{model_name}_k_{k_hop}_ndam_iter_{n_iter}_lr_{lr}.pth'
-        torch.save(model, filename_model)
+            filename = result_dir + f'/{model_name}_k_{k_hop}_ndam_iter_{n_iter}_lr_{lr}_remove_{remove_region}.csv'
+            filename_valid = result_dir + f'/{model_name}_k_{k_hop}_ndam_iter_{n_iter}_lr_{lr}_valid.csv'
+        np.savetxt(filename, list_train_acc, delimiter=',', fmt='%f')
+        np.savetxt(filename_valid, list_valid_acc, delimiter=',', fmt='%f')
 
-        valid_acc = test(model, valid_loader, valid_dataset)
-        list_valid_acc.append(valid_acc)
-        
-    # Save train accuracy log
-    if model_name == 'CNN':
-        filename = result_dir + f'/{model_name}_ndam_iter_{n_iter}.csv'
-    else:
-        filename = result_dir + f'{model_name}_k_{k_hop}_ndam_iter_{n_iter}_lr_{lr}.csv'
-    np.savetxt(filename, list_train_acc, delimiter=',', fmt='%f')
+    # get test accuracy
+    file_dir = result_dir + f'/{model_name}_k_{k_hop}_ndam_iter_{n_iter}_lr_{lr}_remove_None.csv'
+    file_dir_valid = result_dir + f'/{model_name}_k_{k_hop}_ndam_iter_{n_iter}_lr_{lr}_valid.csv'
+    list_train_acc = pd.read_csv(file_dir, header=None)    
+    list_valid_acc = pd.read_csv(file_dir_valid, header=None)
+    
+    #choose_fold = np.where(list_valid_acc[-1,:] == max(list_valid_acc[-1,:]))[0][0]
+    choose_fold = list_valid_acc.iloc[-1,:].idxmax()
 
-    # Retain saved model
-    # This may not work for other environments due to different path names
-    choose_fold = list_valid_acc.index(max(list_valid_acc))
-    print("chosen fold: ", choose_fold)
-    filename_model = model_dir + f'/kfold_{choose_fold}_{model_name}_k_{k_hop}_ndam_iter_{n_iter}_lr_{lr}.pth'
-    choose_model = torch.load(filename_model)
+    train_acc = list_train_acc.iloc[-1,choose_fold] # type: ignore
+    valid_acc = list_valid_acc.iloc[-1,choose_fold] # type: ignore
+    
+    choose_model = torch.load(model_dir + f'/kfold_{choose_fold}_{model_name}_k_{k_hop}_ndam_iter_{n_iter}_lr_{lr}_remove_{remove_region}.pth')
     test_acc = test(choose_model, test_loader, test_dataset)
+
+    print(train_acc, valid_acc, test_acc)
     print('\nElapsed Time: ',time.time()-start)
-    return test_acc, list_valid_acc, choose_model
+    return train_acc, valid_acc, test_acc
